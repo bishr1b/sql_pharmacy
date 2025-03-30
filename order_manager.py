@@ -212,3 +212,5 @@ class OrderManager:
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save order: {str(e)}")
+            
+            

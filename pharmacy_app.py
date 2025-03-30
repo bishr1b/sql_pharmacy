@@ -1,31 +1,13 @@
 import tkinter as tk
-from tkinter import messagebox, ttk, simpledialog
+from tkinter import messagebox, ttk
 from ttkthemes import ThemedTk
-import mysql.connector
-from tkinter import font
 from datetime import datetime, timedelta
-from PIL import Image, ImageDraw, ImageFont
-import os
 from customer_manager import CustomerManager
 from supplier_manager import SupplierManager
 from medicine_manager import MedicineManager
 from sales_manager import SalesManager
 from logintoapp import LoginWindow
-
-# Database connection
-def connect_to_database():
-    try:
-        connection = mysql.connector.connect(
-            host="localhost",
-            user="root",
-            password="",
-            database="pharmacy_db",
-            autocommit=False
-        )
-        return connection
-    except mysql.connector.Error as err:
-        messagebox.showerror("Database Error", f"Error: {err}")
-        return None
+from database import Database
 
 class PharmacyApp:
     def __init__(self, root):
@@ -34,10 +16,11 @@ class PharmacyApp:
         self.root.geometry("1400x800")
         self.root.configure(bg="#f0f0f0")
 
-        # Connect to the database
-        self.connection = connect_to_database()
-        if not self.connection:
-            messagebox.showerror("Error", "Failed to connect to database")
+        # Initialize database
+        try:
+            Database.initialize_pool()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to connect to database: {str(e)}")
             self.root.destroy()
             return
 
@@ -46,7 +29,7 @@ class PharmacyApp:
         self.style.theme_use("clam")
 
         # Pharmacy Name
-        self.pharmacy_name_font = font.Font(family="Helvetica", size=24, weight="bold")
+        self.pharmacy_name_font = tk.font.Font(family="Helvetica", size=24, weight="bold")
         pharmacy_name = tk.Label(root, text="Pharmacy Management System", 
                                font=self.pharmacy_name_font, fg="#333333", bg="#f0f0f0")
         pharmacy_name.place(relx=0.5, rely=0.02, anchor="center")
@@ -75,7 +58,7 @@ class PharmacyApp:
 
         # Initialize all managers
         self.medicine_manager = MedicineManager(self.main_frame)
-        self.sales_manager = SalesManager(self.main_frame, self.connection, self.medicine_manager)
+        self.sales_manager = SalesManager(self.main_frame)
         self.customer_manager = CustomerManager(self.main_frame)
         self.supplier_manager = SupplierManager(self.main_frame)
 
@@ -85,19 +68,20 @@ class PharmacyApp:
 
     def check_expiration_alerts(self):
         """Check for medicines nearing expiration"""
-        cursor = self.connection.cursor()
-        today = datetime.now().date()
-        alert_date = today + timedelta(days=30)
+        try:
+            today = datetime.now().date()
+            alert_date = today + timedelta(days=30)
+            query = "SELECT name, expiry_date FROM medicines WHERE expiry_date <= %s"
+            expiring_medicines = Database.execute_query(query, (alert_date,), fetch=True)
 
-        cursor.execute("SELECT name, expiry_date FROM medicines WHERE expiry_date <= %s", (alert_date,))
-        expiring_medicines = cursor.fetchall()
-
-        if expiring_medicines:
-            alert_message = "The following medicines are nearing expiration:\n\n"
-            for medicine in expiring_medicines:
-                days_left = (medicine[1] - today).days
-                alert_message += f"{medicine[0]} (Expires on: {medicine[1]}, {days_left} days left)\n"
-            messagebox.showwarning("Expiration Alert", alert_message)
+            if expiring_medicines:
+                alert_message = "The following medicines are nearing expiration:\n\n"
+                for medicine in expiring_medicines:
+                    days_left = (medicine['expiry_date'] - today).days
+                    alert_message += f"{medicine['name']} (Expires on: {medicine['expiry_date']}, {days_left} days left)\n"
+                messagebox.showwarning("Expiration Alert", alert_message)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to check expiration alerts: {str(e)}")
 
     def show_medicine_management(self):
         """Show medicine management interface"""

@@ -52,23 +52,44 @@ class Database:
 class BaseModel:
     @classmethod
     def get_all(cls, search_term: str = None) -> List[Dict]:
-        pass
+        query = f"SELECT * FROM {cls.TABLE}"
+        if search_term:
+            query += " WHERE name LIKE %s"
+            return Database.execute_query(query, (f"%{search_term}%",), fetch=True)
+        return Database.execute_query(query, fetch=True)
     
     @classmethod
     def get_by_id(cls, id: int) -> Optional[Dict]:
-        pass
+        query = f"SELECT * FROM {cls.TABLE} WHERE {cls.TABLE}_id = %s"
+        result = Database.execute_query(query, (id,), fetch=True)
+        return result[0] if result else None
     
     @classmethod
     def create(cls, data: Dict) -> int:
-        pass
+        columns = ', '.join(data.keys())
+        placeholders = ', '.join(['%s'] * len(data))
+        query = f"INSERT INTO {cls.TABLE} ({columns}) VALUES ({placeholders})"
+        Database.execute_query(query, tuple(data.values()))
+        return Database.execute_query("SELECT LAST_INSERT_ID()", fetch=True)[0]['LAST_INSERT_ID()']
     
     @classmethod
     def update(cls, id: int, data: Dict) -> bool:
-        pass
+        set_clause = ', '.join([f"{key}=%s" for key in data.keys()])
+        query = f"UPDATE {cls.TABLE} SET {set_clause} WHERE {cls.TABLE}_id = %s"
+        try:
+            Database.execute_query(query, tuple(data.values()) + (id,))
+            return True
+        except:
+            return False
     
     @classmethod
     def delete(cls, id: int) -> bool:
-        pass
+        query = f"DELETE FROM {cls.TABLE} WHERE {cls.TABLE}_id = %s"
+        try:
+            Database.execute_query(query, (id,))
+            return True
+        except:
+            return False
 
 class Medicine(BaseModel):
     TABLE = "medicines"
@@ -94,25 +115,9 @@ class Medicine(BaseModel):
 
 class Supplier(BaseModel):
     TABLE = "suppliers"
-    
-    @classmethod
-    def get_all(cls, search_term: str = None) -> List[Dict]:
-        query = f"SELECT * FROM {cls.TABLE}"
-        if search_term:
-            query += " WHERE name LIKE %s OR contact_person LIKE %s"
-            return Database.execute_query(query, (f"%{search_term}%", f"%{search_term}%"), fetch=True)
-        return Database.execute_query(query, fetch=True)
 
 class Customer(BaseModel):
     TABLE = "customers"
-    
-    @classmethod
-    def get_all(cls, search_term: str = None) -> List[Dict]:
-        query = f"SELECT * FROM {cls.TABLE}"
-        if search_term:
-            query += " WHERE name LIKE %s OR phone LIKE %s OR email LIKE %s"
-            return Database.execute_query(query, (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"), fetch=True)
-        return Database.execute_query(query, fetch=True)
     
     @classmethod
     def add_loyalty_points(cls, customer_id: int, points: int) -> bool:
@@ -125,14 +130,6 @@ class Customer(BaseModel):
 
 class Employee(BaseModel):
     TABLE = "employees"
-    
-    @classmethod
-    def get_all(cls, search_term: str = None) -> List[Dict]:
-        query = f"SELECT * FROM {cls.TABLE}"
-        if search_term:
-            query += " WHERE name LIKE %s OR role LIKE %s OR email LIKE %s"
-            return Database.execute_query(query, (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"), fetch=True)
-        return Database.execute_query(query, fetch=True)
 
 class Prescription(BaseModel):
     TABLE = "prescriptions"
@@ -156,27 +153,27 @@ class Order(BaseModel):
         try:
             # Create order
             query = f"""INSERT INTO {cls.TABLE} 
-                       (customer_id, employee_id, order_date, total_amount, status, order_type) 
-                       VALUES (%s, %s, %s, %s, %s, %s)"""
+                       (customer_id, employee_id, order_date, total_amount, order_type) 
+                       VALUES (%s, %s, %s, %s, %s)"""
             cursor.execute(query, (
-                order_data['customer_id'],
-                order_data['employee_id'],
+                order_data.get('customer_id'),
+                order_data.get('employee_id'),
                 order_data.get('order_date', datetime.now()),
                 order_data['total_amount'],
-                order_data.get('status', 'pending'),
                 order_data.get('order_type', 'retail')
             ))
             order_id = cursor.lastrowid
             
-            # Add order items
+            # Add order items - Fixed table name to match SQL schema
             for item in items:
-                query = """INSERT INTO order_details 
-                          (order_id, medicine_id, quantity, subtotal) 
-                          VALUES (%s, %s, %s, %s)"""
+                query = """INSERT INTO order_items 
+                          (order_id, medicine_id, quantity, unit_price, subtotal) 
+                          VALUES (%s, %s, %s, %s, %s)"""
                 cursor.execute(query, (
                     order_id,
                     item['medicine_id'],
                     item['quantity'],
+                    item['price'],
                     item['subtotal']
                 ))
             
@@ -190,17 +187,6 @@ class Order(BaseModel):
 
 class Sale(BaseModel):
     TABLE = "sales"
-    
-    @classmethod
-    def create_from_order(cls, order_id: int) -> int:
-        query = """INSERT INTO sales 
-                  (order_id, sale_date) 
-                  SELECT %s, order_date FROM orders WHERE order_id = %s"""
-        try:
-            Database.execute_query(query, (order_id, order_id))
-            return True
-        except:
-            return False
 
 class Payment(BaseModel):
     TABLE = "payments"
