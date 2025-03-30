@@ -10,6 +10,7 @@ from customer_manager import CustomerManager
 from supplier_manager import SupplierManager
 from medicine_manager import MedicineManager
 from sales_manager import SalesManager
+from logintoapp import LoginWindow
 
 # Database connection
 def connect_to_database():
@@ -19,76 +20,12 @@ def connect_to_database():
             user="root",
             password="",
             database="pharmacy_db",
-            autocommit=False  # Explicitly set autocommit to False
+            autocommit=False
         )
         return connection
     except mysql.connector.Error as err:
         messagebox.showerror("Database Error", f"Error: {err}")
         return None
-class LoginWindow:
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("Admin Login")
-        self.root.geometry("400x300")
-        self.root.configure(bg="#f0f0f0")
-        
-        # Center the window
-        window_width = 400
-        window_height = 300
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        center_x = int(screen_width/2 - window_width/2)
-        center_y = int(screen_height/2 - window_height/2)
-        self.root.geometry(f'{window_width}x{window_height}+{center_x}+{center_y}')
-
-        # Create main frame
-        main_frame = ttk.Frame(self.root, padding="20")
-        main_frame.pack(expand=True, fill="both")
-
-        # Title
-        title_label = ttk.Label(main_frame, text="Pharmacy Management System", 
-                             font=("Helvetica", 16, "bold"))
-        title_label.pack(pady=20)
-
-        # Login frame
-        login_frame = ttk.LabelFrame(main_frame, text="Admin Login", padding="20")
-        login_frame.pack(expand=True, fill="both", padx=20, pady=10)
-
-        # Username
-        ttk.Label(login_frame, text="Username:").pack(fill="x", pady=5)
-        self.username_entry = ttk.Entry(login_frame)
-        self.username_entry.pack(fill="x", pady=5)
-
-        # Password
-        ttk.Label(login_frame, text="Password:").pack(fill="x", pady=5)
-        self.password_entry = ttk.Entry(login_frame, show="*")
-        self.password_entry.pack(fill="x", pady=5)
-
-        # Login button
-        login_button = ttk.Button(login_frame, text="Login", command=self.login)
-        login_button.pack(pady=20)
-
-        # Bind Enter key to login
-        self.root.bind('<Return>', lambda e: self.login())
-
-        # Store the login status
-        self.login_successful = False
-
-    def login(self):
-        ADMIN_USERNAME = "admin"
-        ADMIN_PASSWORD = "admin123"
-
-        if (self.username_entry.get() == ADMIN_USERNAME and 
-            self.password_entry.get() == ADMIN_PASSWORD):
-            self.login_successful = True
-            self.root.destroy()
-        else:
-            messagebox.showerror("Error", "Invalid username or password")
-            self.password_entry.delete(0, tk.END)
-
-    def run(self):
-        self.root.mainloop()
-        return self.login_successful
 
 class PharmacyApp:
     def __init__(self, root):
@@ -137,10 +74,10 @@ class PharmacyApp:
         self.main_frame.pack(side="left", fill="both", expand=True, padx=10, pady=10)
 
         # Initialize all managers
-        self.medicine_manager = MedicineManager(self.main_frame, self.connection)
+        self.medicine_manager = MedicineManager(self.main_frame)
         self.sales_manager = SalesManager(self.main_frame, self.connection, self.medicine_manager)
-        self.customer_manager = CustomerManager(self.main_frame, self.connection)
-        self.supplier_manager = SupplierManager(self.main_frame, self.connection)
+        self.customer_manager = CustomerManager(self.main_frame)
+        self.supplier_manager = SupplierManager(self.main_frame)
 
         # Show default view
         self.show_medicine_management()

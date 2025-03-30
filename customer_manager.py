@@ -1,226 +1,208 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
-from database import Database
+from database import Customer
 
 class CustomerManager:
-    def __init__(self, parent_frame, connection):
+    def __init__(self, parent_frame):
         self.frame = ttk.Frame(parent_frame)
-        self.connection = connection
+        self.current_customer = None
         self.setup_ui()
 
     def setup_ui(self):
-        """Initialize the customer management UI"""
-        # Search Frame
+        # Search frame
         search_frame = ttk.Frame(self.frame)
         search_frame.pack(fill="x", padx=10, pady=10)
         
-        ttk.Label(search_frame, text="Search:").pack(side="left", padx=5)
-        self.search_entry = ttk.Entry(search_frame, width=40)
+        ttk.Label(search_frame, text="Search:").pack(side="left")
+        self.search_entry = ttk.Entry(search_frame, width=30)
         self.search_entry.pack(side="left", padx=5)
         self.search_entry.bind("<KeyRelease>", self.search_customers)
         
-        # Customer table
-        self.tree = ttk.Treeview(self.frame, 
-                               columns=("ID", "Name", "Phone", "Email", "Address", "Age", "Points"),
-                               show="headings")
-        self.tree.heading("ID", text="ID")
-        self.tree.heading("Name", text="Name")
-        self.tree.heading("Phone", text="Phone")
-        self.tree.heading("Email", text="Email")
-        self.tree.heading("Address", text="Address")
-        self.tree.heading("Age", text="Age")
-        self.tree.heading("Points", text="Loyalty Points")
-        self.tree.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # Buttons frame
+        # Customer treeview
+        self.tree = ttk.Treeview(self.frame, columns=(
+            "ID", "Name", "Phone", "Email", "Address", "Age", "Points"
+        ), show="headings", selectmode="browse")
+        
+        columns = [
+            ("ID", "ID", 50),
+            ("Name", "Name", 150),
+            ("Phone", "Phone", 100),
+            ("Email", "Email", 150),
+            ("Address", "Address", 200),
+            ("Age", "Age", 50),
+            ("Points", "Loyalty Points", 80)
+        ]
+        
+        for col_id, col_text, width in columns:
+            self.tree.heading(col_id, text=col_text)
+            self.tree.column(col_id, width=width, anchor="center")
+        
+        self.tree.pack(fill="both", expand=True, padx=10, pady=5)
+        self.tree.bind("<<TreeviewSelect>>", self.on_customer_select)
+        
+        # Button frame
         btn_frame = ttk.Frame(self.frame)
         btn_frame.pack(fill="x", padx=10, pady=10)
         
-        ttk.Button(btn_frame, text="Add Customer", command=self.add_customer).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Edit Customer", command=self.edit_customer).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Delete Customer", command=self.delete_customer).pack(side="left", padx=5)
+        self.add_btn = ttk.Button(btn_frame, text="Add", command=self.show_add_dialog)
+        self.edit_btn = ttk.Button(btn_frame, text="Edit", command=self.show_edit_dialog, state="disabled")
+        self.delete_btn = ttk.Button(btn_frame, text="Delete", command=self.delete_customer, state="disabled")
+        
+        self.add_btn.pack(side="left", padx=5)
+        self.edit_btn.pack(side="left", padx=5)
+        self.delete_btn.pack(side="left", padx=5)
+        
         ttk.Button(btn_frame, text="Refresh", command=self.load_customers).pack(side="right", padx=5)
-
+        
         self.load_customers()
 
     def load_customers(self, search_term=None):
-        """Load customers from database with optional search filter"""
         for row in self.tree.get_children():
             self.tree.delete(row)
-            
-        cursor = self.connection.cursor()
+        
         try:
-            if search_term:
-                query = """SELECT customer_id, name, phone, email, address, age, loyalty_points 
-                          FROM customers 
-                          WHERE name LIKE %s OR phone LIKE %s OR email LIKE %s"""
-                cursor.execute(query, (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"))
-            else:
-                cursor.execute("""SELECT customer_id, name, phone, email, address, age, loyalty_points 
-                                 FROM customers ORDER BY name""")
-            
-            for row in cursor.fetchall():
-                self.tree.insert("", "end", values=row)
+            customers = Customer.get_all(search_term)
+            for cust in customers:
+                self.tree.insert("", "end", values=(
+                    cust['customer_id'],
+                    cust['name'],
+                    cust['phone'] or "N/A",
+                    cust['email'] or "N/A",
+                    cust['address'] or "N/A",
+                    cust['age'] or "N/A",
+                    cust['loyalty_points'] or 0
+                ))
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load customers: {e}")
-        finally:
-            cursor.close()
+            messagebox.showerror("Error", f"Failed to load customers: {str(e)}")
 
     def search_customers(self, event=None):
-        """Search customers based on entered text"""
-        search_term = self.search_entry.get()
-        self.load_customers(search_term)
+        self.load_customers(self.search_entry.get())
 
-    def add_customer(self):
-        """Open dialog to add a new customer"""
-        add_window = tk.Toplevel(self.frame)
-        add_window.title("Add Customer")
-        add_window.resizable(False, False)
-        
-        fields = [
-            ("Name*", "name"),
-            ("Phone", "phone"),
-            ("Email", "email"),
-            ("Address", "address"),
-            ("Age", "age")
-        ]
-        
-        entries = {}
-        for i, (label, field) in enumerate(fields):
-            ttk.Label(add_window, text=label).grid(row=i, column=0, padx=5, pady=5, sticky="e")
-            entry = ttk.Entry(add_window, width=30)
-            entry.grid(row=i, column=1, padx=5, pady=5)
-            entries[field] = entry
-    
-        def save_customer():
-            """Save the new customer to database"""
-            if not entries["name"].get():
-                messagebox.showwarning("Warning", "Name is required!")
-                return
-                
-            try:
-                cursor = self.connection.cursor()
-                cursor.execute(
-                    """INSERT INTO customers 
-                    (name, phone, email, address, age) 
-                    VALUES (%s, %s, %s, %s, %s)""",
-                    (entries["name"].get(), 
-                     entries["phone"].get(),
-                     entries["email"].get(),
-                     entries["address"].get(),
-                     int(entries["age"].get()) if entries["age"].get() else None)
-                )
-                self.connection.commit()
-                messagebox.showinfo("Success", "Customer added successfully!")
-                self.load_customers()
-                add_window.destroy()
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to add customer: {e}")
-            finally:
-                cursor.close()
-
-        ttk.Button(add_window, text="Save", command=save_customer).grid(row=len(fields), column=1, pady=10)
-
-    def edit_customer(self):
-        """Edit selected customer"""
+    def on_customer_select(self, event):
         selected = self.tree.selection()
-        if not selected:
-            messagebox.showwarning("Warning", "Please select a customer to edit")
-            return
-            
-        customer_id = self.tree.item(selected[0], "values")[0]
-        
-        cursor = self.connection.cursor()
-        try:
-            cursor.execute("""SELECT customer_id, name, phone, email, address, age, loyalty_points 
-                            FROM customers WHERE customer_id = %s""", (customer_id,))
-            customer = cursor.fetchone()
-            
-            edit_window = tk.Toplevel(self.frame)
-            edit_window.title("Edit Customer")
-            edit_window.resizable(False, False)
-            
-            fields = [
-                ("Name*", "name"),
-                ("Phone", "phone"),
-                ("Email", "email"),
-                ("Address", "address"),
-                ("Age", "age"),
-                ("Loyalty Points", "points")
-            ]
-            
-            entries = {}
-            for i, (label, field) in enumerate(fields):
-                ttk.Label(edit_window, text=label).grid(row=i, column=0, padx=5, pady=5, sticky="e")
-                entry = ttk.Entry(edit_window, width=30)
-                entry.grid(row=i, column=1, padx=5, pady=5)
-                entry.insert(0, customer[i+1] if customer[i+1] else "")
-                entries[field] = entry
-        
-            def update_customer():
-                """Update customer in database"""
-                if not entries["name"].get():
-                    messagebox.showwarning("Warning", "Name is required!")
-                    return
-                    
-                try:
-                    cursor.execute(
-                        """UPDATE customers SET 
-                            name = %s, phone = %s, email = %s, 
-                            address = %s, age = %s, loyalty_points = %s
-                            WHERE customer_id = %s""",
-                        (entries["name"].get(),
-                         entries["phone"].get(),
-                         entries["email"].get(),
-                         entries["address"].get(),
-                         int(entries["age"].get()) if entries["age"].get() else None,
-                         int(entries["points"].get()) if entries["points"].get() else 0,
-                         customer_id)
-                    )
-                    self.connection.commit()
-                    messagebox.showinfo("Success", "Customer updated successfully!")
-                    self.load_customers()
-                    edit_window.destroy()
-                except Exception as e:
-                    messagebox.showerror("Error", f"Failed to update customer: {e}")
+        if selected:
+            self.current_customer = self.tree.item(selected[0])['values']
+            self.edit_btn.config(state="normal")
+            self.delete_btn.config(state="normal")
+        else:
+            self.current_customer = None
+            self.edit_btn.config(state="disabled")
+            self.delete_btn.config(state="disabled")
 
-            ttk.Button(edit_window, text="Update", command=update_customer).grid(row=len(fields), column=1, pady=10)
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load customer data: {e}")
-        finally:
-            cursor.close()
+    def show_add_dialog(self):
+        dialog = CustomerDialog(self.frame, title="Add New Customer")
+        if dialog.result:
+            try:
+                Customer.create(dialog.result)
+                self.load_customers()
+                messagebox.showinfo("Success", "Customer added successfully")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to add customer: {str(e)}")
+
+    def show_edit_dialog(self):
+        if not self.current_customer:
+            return
+        
+        customer_id = self.current_customer[0]
+        customer_data = {
+            'name': self.current_customer[1],
+            'phone': self.current_customer[2],
+            'email': self.current_customer[3],
+            'address': self.current_customer[4],
+            'age': self.current_customer[5],
+            'loyalty_points': self.current_customer[6]
+        }
+        
+        dialog = CustomerDialog(self.frame, title="Edit Customer", data=customer_data)
+        if dialog.result:
+            try:
+                Customer.update(customer_id, dialog.result)
+                self.load_customers()
+                messagebox.showinfo("Success", "Customer updated successfully")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to update customer: {str(e)}")
 
     def delete_customer(self):
-        """Delete selected customer"""
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showwarning("Warning", "Please select a customer to delete")
+        if not self.current_customer:
             return
-            
-        customer_id = self.tree.item(selected[0], "values")[0]
         
-        if not messagebox.askyesno("Confirm", "Are you sure you want to delete this customer?"):
-            return
-            
-        cursor = self.connection.cursor()
+        if messagebox.askyesno("Confirm", "Delete this customer?"):
+            try:
+                Customer.delete(self.current_customer[0])
+                self.load_customers()
+                messagebox.showinfo("Success", "Customer deleted successfully")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to delete customer: {str(e)}")
+
+class CustomerDialog(tk.Toplevel):
+    def __init__(self, parent, title, data=None):
+        super().__init__(parent)
+        self.title(title)
+        self.geometry("400x450")
+        self.resizable(False, False)
+        self.result = None
+        
+        self.data = data or {
+            'name': '',
+            'phone': '',
+            'email': '',
+            'address': '',
+            'age': '',
+            'loyalty_points': 0
+        }
+        
+        self.create_widgets()
+        self.transient(parent)
+        self.grab_set()
+        self.wait_window(self)
+    
+    def create_widgets(self):
+        ttk.Label(self, text="Name:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        self.name_entry = ttk.Entry(self)
+        self.name_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        self.name_entry.insert(0, self.data['name'])
+        
+        ttk.Label(self, text="Phone:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        self.phone_entry = ttk.Entry(self)
+        self.phone_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        self.phone_entry.insert(0, self.data['phone'] or "")
+        
+        ttk.Label(self, text="Email:").grid(row=2, column=0, padx=5, pady=5, sticky="e")
+        self.email_entry = ttk.Entry(self)
+        self.email_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        self.email_entry.insert(0, self.data['email'] or "")
+        
+        ttk.Label(self, text="Address:").grid(row=3, column=0, padx=5, pady=5, sticky="e")
+        self.address_entry = ttk.Entry(self)
+        self.address_entry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
+        self.address_entry.insert(0, self.data['address'] or "")
+        
+        ttk.Label(self, text="Age:").grid(row=4, column=0, padx=5, pady=5, sticky="e")
+        self.age_entry = ttk.Entry(self)
+        self.age_entry.grid(row=4, column=1, padx=5, pady=5, sticky="ew")
+        self.age_entry.insert(0, str(self.data['age']) if self.data['age'] else "")
+        
+        ttk.Label(self, text="Loyalty Points:").grid(row=5, column=0, padx=5, pady=5, sticky="e")
+        self.points_entry = ttk.Entry(self)
+        self.points_entry.grid(row=5, column=1, padx=5, pady=5, sticky="ew")
+        self.points_entry.insert(0, str(self.data['loyalty_points']))
+        
+        button_frame = ttk.Frame(self)
+        button_frame.grid(row=6, column=0, columnspan=2, pady=10)
+        
+        ttk.Button(button_frame, text="Save", command=self.on_save).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side="right", padx=5)
+    
+    def on_save(self):
         try:
-            # Check if customer has sales or prescriptions
-            cursor.execute("SELECT COUNT(*) FROM sales WHERE customer_id = %s", (customer_id,))
-            sales_count = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM prescriptions WHERE customer_id = %s", (customer_id,))
-            prescriptions_count = cursor.fetchone()[0]
-            
-            if sales_count > 0 or prescriptions_count > 0:
-                messagebox.showwarning("Warning", 
-                    f"Cannot delete customer. There are {sales_count} sales and {prescriptions_count} prescriptions associated.")
-                return
-                
-            cursor.execute("DELETE FROM customers WHERE customer_id = %s", (customer_id,))
-            self.connection.commit()
-            messagebox.showinfo("Success", "Customer deleted successfully!")
-            self.load_customers()
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to delete customer: {e}")
-        finally:
-            cursor.close()
+            self.result = {
+                'name': self.name_entry.get(),
+                'phone': self.phone_entry.get() or None,
+                'email': self.email_entry.get() or None,
+                'address': self.address_entry.get() or None,
+                'age': int(self.age_entry.get()) if self.age_entry.get() else None,
+                'loyalty_points': int(self.points_entry.get())
+            }
+            self.destroy()
+        except ValueError:
+            messagebox.showerror("Error", "Please enter valid numeric values for age and loyalty points")

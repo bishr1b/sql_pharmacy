@@ -1,0 +1,9 @@
+mysql-connector-python==8.0.33
+Pillow==9.5.0
+ttkthemes==3.2.2
+*****************************
+terminal تحميل جميع المكاتب من 
+pip install tk
+pip install Pillow
+pip install ttk-themes
+pip install mysql-connector-python

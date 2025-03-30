@@ -1,225 +1,205 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
-from database import Database
+from database import Supplier
 
 class SupplierManager:
-    def __init__(self, parent_frame, connection):
+    def __init__(self, parent_frame):
         self.frame = ttk.Frame(parent_frame)
-        self.connection = connection
+        self.current_supplier = None
         self.setup_ui()
 
     def setup_ui(self):
-        """Initialize the supplier management UI"""
-        # Search Frame
+        # Search frame
         search_frame = ttk.Frame(self.frame)
         search_frame.pack(fill="x", padx=10, pady=10)
         
-        ttk.Label(search_frame, text="Search:").pack(side="left", padx=5)
-        self.search_entry = ttk.Entry(search_frame, width=40)
+        ttk.Label(search_frame, text="Search:").pack(side="left")
+        self.search_entry = ttk.Entry(search_frame, width=30)
         self.search_entry.pack(side="left", padx=5)
         self.search_entry.bind("<KeyRelease>", self.search_suppliers)
         
-        # Supplier table
-        self.tree = ttk.Treeview(self.frame, 
-                               columns=("ID", "Name", "Contact", "Phone", "Email", "Country", "Terms"),
-                               show="headings")
-        self.tree.heading("ID", text="ID")
-        self.tree.heading("Name", text="Name")
-        self.tree.heading("Contact", text="Contact Person")
-        self.tree.heading("Phone", text="Phone")
-        self.tree.heading("Email", text="Email")
-        self.tree.heading("Country", text="Country")
-        self.tree.heading("Terms", text="Payment Terms")
-        self.tree.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # Buttons frame
+        # Supplier treeview
+        self.tree = ttk.Treeview(self.frame, columns=(
+            "ID", "Name", "Contact", "Phone", "Email", "Country", "Terms"
+        ), show="headings", selectmode="browse")
+        
+        columns = [
+            ("ID", "ID", 50),
+            ("Name", "Name", 150),
+            ("Contact", "Contact", 120),
+            ("Phone", "Phone", 100),
+            ("Email", "Email", 150),
+            ("Country", "Country", 100),
+            ("Terms", "Payment Terms", 120)
+        ]
+        
+        for col_id, col_text, width in columns:
+            self.tree.heading(col_id, text=col_text)
+            self.tree.column(col_id, width=width, anchor="center")
+        
+        self.tree.pack(fill="both", expand=True, padx=10, pady=5)
+        self.tree.bind("<<TreeviewSelect>>", self.on_supplier_select)
+        
+        # Button frame
         btn_frame = ttk.Frame(self.frame)
         btn_frame.pack(fill="x", padx=10, pady=10)
         
-        ttk.Button(btn_frame, text="Add Supplier", command=self.add_supplier).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Edit Supplier", command=self.edit_supplier).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Delete Supplier", command=self.delete_supplier).pack(side="left", padx=5)
+        self.add_btn = ttk.Button(btn_frame, text="Add", command=self.show_add_dialog)
+        self.edit_btn = ttk.Button(btn_frame, text="Edit", command=self.show_edit_dialog, state="disabled")
+        self.delete_btn = ttk.Button(btn_frame, text="Delete", command=self.delete_supplier, state="disabled")
+        
+        self.add_btn.pack(side="left", padx=5)
+        self.edit_btn.pack(side="left", padx=5)
+        self.delete_btn.pack(side="left", padx=5)
+        
         ttk.Button(btn_frame, text="Refresh", command=self.load_suppliers).pack(side="right", padx=5)
-
+        
         self.load_suppliers()
 
     def load_suppliers(self, search_term=None):
-        """Load suppliers from database with optional search filter"""
         for row in self.tree.get_children():
             self.tree.delete(row)
-            
-        cursor = self.connection.cursor()
+        
         try:
-            if search_term:
-                query = """SELECT supplier_id, name, contact_person, phone, email, country, payment_terms 
-                          FROM suppliers WHERE name LIKE %s OR contact_person LIKE %s"""
-                cursor.execute(query, (f"%{search_term}%", f"%{search_term}%"))
-            else:
-                cursor.execute("""SELECT supplier_id, name, contact_person, phone, email, country, payment_terms 
-                                 FROM suppliers ORDER BY name""")
-            
-            for row in cursor.fetchall():
-                self.tree.insert("", "end", values=row)
+            suppliers = Supplier.get_all(search_term)
+            for sup in suppliers:
+                self.tree.insert("", "end", values=(
+                    sup['supplier_id'],
+                    sup['name'],
+                    sup['contact_person'] or "N/A",
+                    sup['phone'] or "N/A",
+                    sup['email'] or "N/A",
+                    sup['country'] or "N/A",
+                    sup['payment_terms'] or "N/A"
+                ))
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load suppliers: {e}")
-        finally:
-            cursor.close()
+            messagebox.showerror("Error", f"Failed to load suppliers: {str(e)}")
 
     def search_suppliers(self, event=None):
-        """Search suppliers based on entered text"""
-        search_term = self.search_entry.get()
-        self.load_suppliers(search_term)
+        self.load_suppliers(self.search_entry.get())
 
-    def add_supplier(self):
-        """Open dialog to add a new supplier"""
-        add_window = tk.Toplevel(self.frame)
-        add_window.title("Add Supplier")
-        add_window.resizable(False, False)
-        
-        fields = [
-            ("Name*", "name"),
-            ("Contact Person", "contact"),
-            ("Phone", "phone"),
-            ("Email", "email"),
-            ("Country", "country"),
-            ("Payment Terms", "terms")
-        ]
-        
-        entries = {}
-        for i, (label, field) in enumerate(fields):
-            ttk.Label(add_window, text=label).grid(row=i, column=0, padx=5, pady=5, sticky="e")
-            entry = ttk.Entry(add_window, width=30)
-            entry.grid(row=i, column=1, padx=5, pady=5)
-            entries[field] = entry
-    
-        def save_supplier():
-            """Save the new supplier to database"""
-            if not entries["name"].get():
-                messagebox.showwarning("Warning", "Name is required!")
-                return
-                
-            try:
-                cursor = self.connection.cursor()
-                cursor.execute(
-                    """INSERT INTO suppliers 
-                    (name, contact_person, phone, email, country, payment_terms) 
-                    VALUES (%s, %s, %s, %s, %s, %s)""",
-                    (entries["name"].get(), 
-                     entries["contact"].get(),
-                     entries["phone"].get(),
-                     entries["email"].get(),
-                     entries["country"].get(),
-                     entries["terms"].get())
-                )
-                self.connection.commit()
-                messagebox.showinfo("Success", "Supplier added successfully!")
-                self.load_suppliers()
-                add_window.destroy()
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to add supplier: {e}")
-            finally:
-                cursor.close()
-
-        ttk.Button(add_window, text="Save", command=save_supplier).grid(row=len(fields), column=1, pady=10)
-
-    def edit_supplier(self):
-        """Edit selected supplier"""
+    def on_supplier_select(self, event):
         selected = self.tree.selection()
-        if not selected:
-            messagebox.showwarning("Warning", "Please select a supplier to edit")
-            return
-            
-        supplier_id = self.tree.item(selected[0], "values")[0]
-        
-        cursor = self.connection.cursor()
-        try:
-            cursor.execute("""SELECT supplier_id, name, contact_person, phone, email, country, payment_terms 
-                            FROM suppliers WHERE supplier_id = %s""", (supplier_id,))
-            supplier = cursor.fetchone()
-            
-            edit_window = tk.Toplevel(self.frame)
-            edit_window.title("Edit Supplier")
-            edit_window.resizable(False, False)
-            
-            fields = [
-                ("Name*", "name"),
-                ("Contact Person", "contact"),
-                ("Phone", "phone"),
-                ("Email", "email"),
-                ("Country", "country"),
-                ("Payment Terms", "terms")
-            ]
-            
-            entries = {}
-            for i, (label, field) in enumerate(fields):
-                ttk.Label(edit_window, text=label).grid(row=i, column=0, padx=5, pady=5, sticky="e")
-                entry = ttk.Entry(edit_window, width=30)
-                entry.grid(row=i, column=1, padx=5, pady=5)
-                entry.insert(0, supplier[i+1] if supplier[i+1] else "")
-                entries[field] = entry
-        
-            def update_supplier():
-                """Update supplier in database"""
-                if not entries["name"].get():
-                    messagebox.showwarning("Warning", "Name is required!")
-                    return
-                    
-                try:
-                    cursor.execute(
-                        """UPDATE suppliers SET 
-                            name = %s, contact_person = %s, phone = %s, 
-                            email = %s, country = %s, payment_terms = %s
-                            WHERE supplier_id = %s""",
-                        (entries["name"].get(),
-                         entries["contact"].get(),
-                         entries["phone"].get(),
-                         entries["email"].get(),
-                         entries["country"].get(),
-                         entries["terms"].get(),
-                         supplier_id)
-                    )
-                    self.connection.commit()
-                    messagebox.showinfo("Success", "Supplier updated successfully!")
-                    self.load_suppliers()
-                    edit_window.destroy()
-                except Exception as e:
-                    messagebox.showerror("Error", f"Failed to update supplier: {e}")
+        if selected:
+            self.current_supplier = self.tree.item(selected[0])['values']
+            self.edit_btn.config(state="normal")
+            self.delete_btn.config(state="normal")
+        else:
+            self.current_supplier = None
+            self.edit_btn.config(state="disabled")
+            self.delete_btn.config(state="disabled")
 
-            ttk.Button(edit_window, text="Update", command=update_supplier).grid(row=len(fields), column=1, pady=10)
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load supplier data: {e}")
-        finally:
-            cursor.close()
+    def show_add_dialog(self):
+        dialog = SupplierDialog(self.frame, title="Add New Supplier")
+        if dialog.result:
+            try:
+                Supplier.create(dialog.result)
+                self.load_suppliers()
+                messagebox.showinfo("Success", "Supplier added successfully")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to add supplier: {str(e)}")
+
+    def show_edit_dialog(self):
+        if not self.current_supplier:
+            return
+        
+        supplier_id = self.current_supplier[0]
+        supplier_data = {
+            'name': self.current_supplier[1],
+            'contact_person': self.current_supplier[2],
+            'phone': self.current_supplier[3],
+            'email': self.current_supplier[4],
+            'country': self.current_supplier[5],
+            'payment_terms': self.current_supplier[6]
+        }
+        
+        dialog = SupplierDialog(self.frame, title="Edit Supplier", data=supplier_data)
+        if dialog.result:
+            try:
+                Supplier.update(supplier_id, dialog.result)
+                self.load_suppliers()
+                messagebox.showinfo("Success", "Supplier updated successfully")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to update supplier: {str(e)}")
 
     def delete_supplier(self):
-        """Delete selected supplier"""
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showwarning("Warning", "Please select a supplier to delete")
+        if not self.current_supplier:
             return
-            
-        supplier_id = self.tree.item(selected[0], "values")[0]
         
-        if not messagebox.askyesno("Confirm", "Are you sure you want to delete this supplier?"):
-            return
-            
-        cursor = self.connection.cursor()
-        try:
-            # Check if supplier has medicines associated
-            cursor.execute("SELECT COUNT(*) FROM medicines WHERE supplier_id = %s", (supplier_id,))
-            medicine_count = cursor.fetchone()[0]
-            
-            if medicine_count > 0:
-                messagebox.showwarning("Warning", 
-                    f"Cannot delete supplier. There are {medicine_count} medicines associated with this supplier.")
-                return
-                
-            cursor.execute("DELETE FROM suppliers WHERE supplier_id = %s", (supplier_id,))
-            self.connection.commit()
-            messagebox.showinfo("Success", "Supplier deleted successfully!")
-            self.load_suppliers()
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to delete supplier: {e}")
-        finally:
-            cursor.close()
+        if messagebox.askyesno("Confirm", "Delete this supplier?"):
+            try:
+                Supplier.delete(self.current_supplier[0])
+                self.load_suppliers()
+                messagebox.showinfo("Success", "Supplier deleted successfully")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to delete supplier: {str(e)}")
+
+class SupplierDialog(tk.Toplevel):
+    def __init__(self, parent, title, data=None):
+        super().__init__(parent)
+        self.title(title)
+        self.geometry("400x400")
+        self.resizable(False, False)
+        self.result = None
+        
+        self.data = data or {
+            'name': '',
+            'contact_person': '',
+            'phone': '',
+            'email': '',
+            'country': '',
+            'payment_terms': ''
+        }
+        
+        self.create_widgets()
+        self.transient(parent)
+        self.grab_set()
+        self.wait_window(self)
+    
+    def create_widgets(self):
+        ttk.Label(self, text="Name:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        self.name_entry = ttk.Entry(self)
+        self.name_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        self.name_entry.insert(0, self.data['name'])
+        
+        ttk.Label(self, text="Contact Person:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        self.contact_entry = ttk.Entry(self)
+        self.contact_entry.grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        self.contact_entry.insert(0, self.data['contact_person'] or "")
+        
+        ttk.Label(self, text="Phone:").grid(row=2, column=0, padx=5, pady=5, sticky="e")
+        self.phone_entry = ttk.Entry(self)
+        self.phone_entry.grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        self.phone_entry.insert(0, self.data['phone'] or "")
+        
+        ttk.Label(self, text="Email:").grid(row=3, column=0, padx=5, pady=5, sticky="e")
+        self.email_entry = ttk.Entry(self)
+        self.email_entry.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
+        self.email_entry.insert(0, self.data['email'] or "")
+        
+        ttk.Label(self, text="Country:").grid(row=4, column=0, padx=5, pady=5, sticky="e")
+        self.country_entry = ttk.Entry(self)
+        self.country_entry.grid(row=4, column=1, padx=5, pady=5, sticky="ew")
+        self.country_entry.insert(0, self.data['country'] or "")
+        
+        ttk.Label(self, text="Payment Terms:").grid(row=5, column=0, padx=5, pady=5, sticky="e")
+        self.terms_entry = ttk.Entry(self)
+        self.terms_entry.grid(row=5, column=1, padx=5, pady=5, sticky="ew")
+        self.terms_entry.insert(0, self.data['payment_terms'] or "")
+        
+        button_frame = ttk.Frame(self)
+        button_frame.grid(row=6, column=0, columnspan=2, pady=10)
+        
+        ttk.Button(button_frame, text="Save", command=self.on_save).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Cancel", command=self.destroy).pack(side="right", padx=5)
+    
+    def on_save(self):
+        self.result = {
+            'name': self.name_entry.get(),
+            'contact_person': self.contact_entry.get() or None,
+            'phone': self.phone_entry.get() or None,
+            'email': self.email_entry.get() or None,
+            'country': self.country_entry.get() or None,
+            'payment_terms': self.terms_entry.get() or None
+        }
+        self.destroy()

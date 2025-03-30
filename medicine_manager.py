@@ -1,443 +1,221 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
-from datetime import datetime, timedelta
-from database import Database
+from datetime import datetime
+from database import Medicine, Supplier
 
 class MedicineManager:
-    def __init__(self, parent_frame, connection):
-        self.frame = ttk.Frame(parent_frame)
-        self.connection = connection
-        self.entries = {}
+    def __init__(self, parent):
+        self.frame = ttk.Frame(parent)
+        self.current_medicine = None
         self.setup_ui()
 
     def setup_ui(self):
-        """Initialize the medicine management UI"""
-        # Search Bar Frame
+        """Initialize all UI components"""
+        # Search Frame
         search_frame = ttk.Frame(self.frame)
-        search_frame.pack(fill="x", padx=10, pady=10)
-
-        # Search Criteria Dropdown
-        self.search_criteria = tk.StringVar()
-        self.search_criteria.set("name")  # Default search criteria
-        search_options = ["name", "category", "manufacturer", "batch_number"]
-        ttk.Label(search_frame, text="Search By:").pack(side="left", padx=5)
-        ttk.Combobox(search_frame, textvariable=self.search_criteria, 
-                    values=search_options, width=15).pack(side="left", padx=5)
-
-        # Search Entry
-        self.search_var = tk.StringVar()
-        self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=40)
-        self.search_entry.pack(side="left", padx=5)
-        self.search_entry.bind("<KeyRelease>", self.filter_medicines)
-
-        # Clear Search Button
-        ttk.Button(search_frame, text="Clear", command=self.clear_search).pack(side="left", padx=5)
-
-        # Add Medicine Frame
-        add_medicine_frame = ttk.LabelFrame(self.frame, text="Add Medicine", padding=10)
-        add_medicine_frame.pack(fill="x", padx=10, pady=10)
-
-        # Form Fields
-        fields = [
-            ("Name*", "name"),
-            ("Quantity*", "quantity"),
-            ("Price*", "price"),
-            ("Expiry Date (YYYY-MM-DD)", "expiry_date"),
-            ("Manufacturer", "manufacturer"),
-            ("Batch Number", "batch_number"),
-            ("Category", "category"),
-            ("Description", "description"),
-            ("Supplier ID", "supplier_id")
-        ]
-
-        self.entries = {}
-        for i, (label, field) in enumerate(fields):
-            ttk.Label(add_medicine_frame, text=label).grid(row=i, column=0, padx=10, pady=5, sticky="e")
-            entry = ttk.Entry(add_medicine_frame, width=40)
-            entry.grid(row=i, column=1, padx=10, pady=5)
-            self.entries[field] = entry
-
-        # Submit Button
-        ttk.Button(add_medicine_frame, text="Submit", command=self.add_medicine).grid(row=len(fields), column=1, pady=10)
-
-        # Table to Display Medicines
-        self.tree = ttk.Treeview(self.frame, 
-                               columns=("ID", "Name", "Quantity", "Price", "Expiry Date", 
-                                       "Manufacturer", "Batch Number", "Category", "Supplier"),
-                               show="headings")
-        columns = [
-            ("ID", "ID"),
-            ("Name", "Name"),
-            ("Quantity", "Quantity"),
-            ("Price", "Price"),
-            ("Expiry Date", "Expiry Date"),
-            ("Manufacturer", "Manufacturer"),
-            ("Batch Number", "Batch Number"),
-            ("Category", "Category"),
-            ("Supplier", "Supplier")
-        ]
+        search_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        for col_id, col_text in columns:
-            self.tree.heading(col_id, text=col_text)
-            self.tree.column(col_id, width=100 if col_id in ["ID", "Quantity", "Price"] else 120)
-            
-        self.tree.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # Update and Delete Buttons
-        button_frame = ttk.Frame(self.frame)
-        button_frame.pack(fill="x", padx=10, pady=10)
-
-        ttk.Button(button_frame, text="Update", command=self.update_medicine).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="Delete", command=self.delete_medicine).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="Check Expiry", command=self.check_expiry).pack(side="right", padx=5)
-
-        # Load existing medicines into the table
+        ttk.Label(search_frame, text="Search:").pack(side=tk.LEFT)
+        self.search_entry = ttk.Entry(search_frame, width=40)
+        self.search_entry.pack(side=tk.LEFT, padx=5)
+        self.search_entry.bind("<KeyRelease>", lambda e: self.load_medicines())
+        
+        # Treeview
+        self.tree = ttk.Treeview(self.frame, columns=(
+            "ID", "Name", "Qty", "Price", "Expiry", "Category", "Supplier"
+        ), show="headings", selectmode="browse")
+        
+        # Configure columns
+        self.tree.heading("ID", text="ID")
+        self.tree.heading("Name", text="Name")
+        self.tree.heading("Qty", text="Quantity")
+        self.tree.heading("Price", text="Price")
+        self.tree.heading("Expiry", text="Expiry Date")
+        self.tree.heading("Category", text="Category")
+        self.tree.heading("Supplier", text="Supplier")
+        
+        self.tree.column("ID", width=50, anchor=tk.CENTER)
+        self.tree.column("Name", width=150)
+        self.tree.column("Qty", width=80, anchor=tk.CENTER)
+        self.tree.column("Price", width=80, anchor=tk.CENTER)
+        self.tree.column("Expiry", width=100, anchor=tk.CENTER)
+        self.tree.column("Category", width=100)
+        self.tree.column("Supplier", width=150)
+        
+        self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        self.tree.bind("<<TreeviewSelect>>", self.on_select)
+        
+        # Buttons
+        btn_frame = ttk.Frame(self.frame)
+        btn_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Button(btn_frame, text="Add", command=self.add_medicine).pack(side=tk.LEFT, padx=5)
+        self.edit_btn = ttk.Button(btn_frame, text="Edit", state=tk.DISABLED, command=self.edit_medicine)
+        self.edit_btn.pack(side=tk.LEFT, padx=5)
+        self.delete_btn = ttk.Button(btn_frame, text="Delete", state=tk.DISABLED, command=self.delete_medicine)
+        self.delete_btn.pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Refresh", command=self.load_medicines).pack(side=tk.RIGHT, padx=5)
+        
+        # Load initial data
         self.load_medicines()
 
     def load_medicines(self):
-        """Load all medicines from database"""
+        """Load medicines with optional search filter"""
+        search_term = self.search_entry.get()
         for row in self.tree.get_children():
             self.tree.delete(row)
             
-        cursor = self.connection.cursor()
         try:
-            cursor.execute("""SELECT m.medicine_id, m.name, m.quantity, m.price, m.expiry_date, 
-                            m.manufacturer, m.batch_number, m.category, 
-                            COALESCE(s.name, 'No Supplier') as supplier_name
-                            FROM medicines m
-                            LEFT JOIN suppliers s ON m.supplier_id = s.supplier_id""")
-            for row in cursor.fetchall():
-                # Format expiry date if exists
-                formatted_row = list(row)
-                if formatted_row[4]:  # expiry_date
-                    formatted_row[4] = formatted_row[4].strftime("%Y-%m-%d")
-                self.tree.insert("", "end", values=formatted_row)
+            medicines = Medicine.get_all(search_term if search_term else None)
+            for med in medicines:
+                self.tree.insert("", tk.END, values=(
+                    med['medicine_id'],
+                    med['name'],
+                    med['quantity'],
+                    f"${med['price']:.2f}",
+                    med['expiry_date'].strftime("%Y-%m-%d") if med['expiry_date'] else "N/A",
+                    med['category'] or "N/A",
+                    med['supplier_name'] or "N/A"
+                ))
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load medicines: {e}")
-        finally:
-            cursor.close()
+            messagebox.showerror("Error", f"Failed to load medicines: {str(e)}")
 
-    def filter_medicines(self, event=None):
-        """Filter medicines based on search criteria"""
-        search_term = self.search_var.get().lower()
-        criteria = self.search_criteria.get()
-
-        for row in self.tree.get_children():
-            self.tree.delete(row)
-
-        cursor = self.connection.cursor()
-        try:
-            query = f"""SELECT m.medicine_id, m.name, m.quantity, m.price, m.expiry_date, 
-                      m.manufacturer, m.batch_number, m.category, 
-                      COALESCE(s.name, 'No Supplier') as supplier_name
-                      FROM medicines m
-                      LEFT JOIN suppliers s ON m.supplier_id = s.supplier_id
-                      WHERE LOWER(m.{criteria}) LIKE %s"""
-            cursor.execute(query, (f"%{search_term}%",))
-            
-            for row in cursor.fetchall():
-                # Format expiry date if exists
-                formatted_row = list(row)
-                if formatted_row[4]:  # expiry_date
-                    formatted_row[4] = formatted_row[4].strftime("%Y-%m-%d")
-                self.tree.insert("", "end", values=formatted_row)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to filter medicines: {e}")
-        finally:
-            cursor.close()
-
-    def clear_search(self):
-        """Clear search and reload all medicines"""
-        self.search_var.set("")
-        self.load_medicines()
+    def on_select(self, event):
+        """Handle medicine selection"""
+        selected = self.tree.selection()
+        if selected:
+            self.current_medicine = self.tree.item(selected[0])['values']
+            self.edit_btn.config(state=tk.NORMAL)
+            self.delete_btn.config(state=tk.NORMAL)
+        else:
+            self.current_medicine = None
+            self.edit_btn.config(state=tk.DISABLED)
+            self.delete_btn.config(state=tk.DISABLED)
 
     def add_medicine(self):
-        """Add new medicine to database"""
-        # Validate required fields
-        if not all([self.entries["name"].get(), 
-                   self.entries["quantity"].get(), 
-                   self.entries["price"].get()]):
-            messagebox.showwarning("Warning", "Name, Quantity and Price are required fields!")
+        """Open add medicine dialog"""
+        dialog = MedicineDialog(self.frame, "Add Medicine")
+        if dialog.result:
+            try:
+                Medicine.create(dialog.result)
+                self.load_medicines()
+                messagebox.showinfo("Success", "Medicine added successfully")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to add medicine: {str(e)}")
+
+    def edit_medicine(self):
+        """Open edit medicine dialog"""
+        if not self.current_medicine:
             return
             
-        try:
-            # Validate numeric fields
-            quantity = int(self.entries["quantity"].get())
-            price = float(self.entries["price"].get())
-            if quantity <= 0 or price <= 0:
-                raise ValueError("Quantity and Price must be positive numbers")
-                
-            # Validate date format if provided
-            expiry_date = self.entries["expiry_date"].get()
-            if expiry_date:
-                try:
-                    datetime.strptime(expiry_date, "%Y-%m-%d")
-                except ValueError:
-                    raise ValueError("Expiry date must be in YYYY-MM-DD format")
-                    
-            # Validate supplier ID if provided
-            supplier_id = self.entries["supplier_id"].get()
-            if supplier_id:
-                try:
-                    supplier_id = int(supplier_id)
-                    cursor = self.connection.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM suppliers WHERE supplier_id = %s", (supplier_id,))
-                    if cursor.fetchone()[0] == 0:
-                        raise ValueError("Supplier ID does not exist")
-                except ValueError:
-                    raise ValueError("Supplier ID must be a valid number")
-                finally:
-                    cursor.close()
-                    
-            # Insert the medicine
-            cursor = self.connection.cursor()
-            query = """
-                INSERT INTO medicines 
-                (name, quantity, price, expiry_date, manufacturer, batch_number, category, description, supplier_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            values = (
-                self.entries["name"].get(),
-                quantity,
-                price,
-                expiry_date if expiry_date else None,
-                self.entries["manufacturer"].get() or None,
-                self.entries["batch_number"].get() or None,
-                self.entries["category"].get() or None,
-                self.entries["description"].get() or None,
-                int(supplier_id) if supplier_id else None
-            )
-            cursor.execute(query, values)
-            self.connection.commit()
-            messagebox.showinfo("Success", "Medicine added successfully!")
-            
-            # Clear form and refresh table
-            for entry in self.entries.values():
-                entry.delete(0, tk.END)
-            self.load_medicines()
-            
-        except ValueError as ve:
-            messagebox.showerror("Input Error", f"Invalid input: {ve}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to add medicine: {e}")
-        finally:
-            cursor.close()
-
-    def update_medicine(self):
-        """Open update dialog for selected medicine"""
-        selected_item = self.tree.selection()
-        if not selected_item:
-            messagebox.showwarning("Warning", "Please select a medicine to update.")
-            return
-            
-        medicine_id = self.tree.item(selected_item[0], "values")[0]
-        self.open_update_window(medicine_id)
-
-    def open_update_window(self, medicine_id):
-        """Open window to update medicine details"""
-        cursor = self.connection.cursor()
-        try:
-            cursor.execute("SELECT * FROM medicines WHERE medicine_id = %s", (medicine_id,))
-            medicine = cursor.fetchone()
-            
-            if not medicine:
-                messagebox.showerror("Error", "Medicine not found!")
-                return
-                
-            update_window = tk.Toplevel(self.frame)
-            update_window.title("Update Medicine")
-            update_window.geometry("500x500")
-            
-            fields = [
-                ("Name*", "name"),
-                ("Quantity*", "quantity"),
-                ("Price*", "price"),
-                ("Expiry Date (YYYY-MM-DD)", "expiry_date"),
-                ("Manufacturer", "manufacturer"),
-                ("Batch Number", "batch_number"),
-                ("Category", "category"),
-                ("Description", "description"),
-                ("Supplier ID", "supplier_id")
-            ]
-            
-            self.update_entries = {}
-            for i, (label, field) in enumerate(fields):
-                ttk.Label(update_window, text=label).grid(row=i, column=0, padx=10, pady=5, sticky="e")
-                entry = ttk.Entry(update_window, width=40)
-                entry.grid(row=i, column=1, padx=10, pady=5)
-                
-                # Fill with current values
-                value = medicine[i+1]  # Skip id at index 0
-                if value is not None:
-                    if field == "expiry_date" and isinstance(value, datetime.date):
-                        entry.insert(0, value.strftime("%Y-%m-%d"))
-                    else:
-                        entry.insert(0, str(value))
-                        
-                self.update_entries[field] = entry
-            
-            ttk.Button(update_window, text="Update", 
-                      command=lambda: self.save_updated_medicine(medicine_id, update_window)
-                      ).grid(row=len(fields), column=1, pady=10)
-                      
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to load medicine data: {e}")
-        finally:
-            cursor.close()
-
-    def save_updated_medicine(self, medicine_id, update_window):
-        """Save updated medicine details to database"""
-        # Validate required fields
-        if not all([self.update_entries["name"].get(), 
-                   self.update_entries["quantity"].get(), 
-                   self.update_entries["price"].get()]):
-            messagebox.showwarning("Warning", "Name, Quantity and Price are required fields!")
-            return
-            
-        try:
-            # Validate numeric fields
-            quantity = int(self.update_entries["quantity"].get())
-            price = float(self.update_entries["price"].get())
-            if quantity <= 0 or price <= 0:
-                raise ValueError("Quantity and Price must be positive numbers")
-                
-            # Validate date format if provided
-            expiry_date = self.update_entries["expiry_date"].get()
-            if expiry_date:
-                try:
-                    datetime.strptime(expiry_date, "%Y-%m-%d")
-                except ValueError:
-                    raise ValueError("Expiry date must be in YYYY-MM-DD format")
-                    
-            # Validate supplier ID if provided
-            supplier_id = self.update_entries["supplier_id"].get()
-            if supplier_id:
-                try:
-                    supplier_id = int(supplier_id)
-                    cursor = self.connection.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM suppliers WHERE supplier_id = %s", (supplier_id,))
-                    if cursor.fetchone()[0] == 0:
-                        raise ValueError("Supplier ID does not exist")
-                except ValueError:
-                    raise ValueError("Supplier ID must be a valid number")
-                finally:
-                    cursor.close()
-                    
-            # Update the medicine
-            cursor = self.connection.cursor()
-            query = """
-                UPDATE medicines
-                SET name = %s, quantity = %s, price = %s, expiry_date = %s, 
-                    manufacturer = %s, batch_number = %s, category = %s, 
-                    description = %s, supplier_id = %s
-                WHERE medicine_id = %s
-            """
-            values = (
-                self.update_entries["name"].get(),
-                quantity,
-                price,
-                expiry_date if expiry_date else None,
-                self.update_entries["manufacturer"].get() or None,
-                self.update_entries["batch_number"].get() or None,
-                self.update_entries["category"].get() or None,
-                self.update_entries["description"].get() or None,
-                int(supplier_id) if supplier_id else None,
-                medicine_id
-            )
-            cursor.execute(query, values)
-            self.connection.commit()
-            messagebox.showinfo("Success", "Medicine updated successfully!")
-            update_window.destroy()
-            self.load_medicines()
-            
-        except ValueError as ve:
-            messagebox.showerror("Input Error", f"Invalid input: {ve}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to update medicine: {e}")
-        finally:
-            cursor.close()
+        med_id = self.current_medicine[0]
+        dialog = MedicineDialog(
+            self.frame, 
+            "Edit Medicine",
+            initial_data={
+                'name': self.current_medicine[1],
+                'quantity': self.current_medicine[2],
+                'price': float(self.current_medicine[3][1:]),
+                'expiry_date': self.current_medicine[4] if self.current_medicine[4] != "N/A" else None,
+                'category': self.current_medicine[5] if self.current_medicine[5] != "N/A" else None,
+                'supplier_id': None  # Would need actual ID lookup
+            }
+        )
+        
+        if dialog.result:
+            try:
+                Medicine.update(med_id, dialog.result)
+                self.load_medicines()
+                messagebox.showinfo("Success", "Medicine updated successfully")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to update medicine: {str(e)}")
 
     def delete_medicine(self):
-        """Delete selected medicine from database"""
-        selected_item = self.tree.selection()
-        if not selected_item:
-            messagebox.showwarning("Warning", "Please select a medicine to delete.")
+        """Delete selected medicine"""
+        if not self.current_medicine or not messagebox.askyesno(
+            "Confirm", "Delete this medicine?"):
             return
             
-        medicine_id = self.tree.item(selected_item[0], "values")[0]
-        
-        if not messagebox.askyesno("Confirm", "Are you sure you want to delete this medicine?"):
-            return
-            
-        cursor = self.connection.cursor()
         try:
-            # Check if medicine has sales records
-            cursor.execute("SELECT COUNT(*) FROM sales WHERE medicine_id = %s", (medicine_id,))
-            sales_count = cursor.fetchone()[0]
-            
-            if sales_count > 0:
-                messagebox.showwarning("Warning", 
-                    f"Cannot delete medicine. There are {sales_count} sales records associated with this medicine.")
-                return
-                
-            cursor.execute("DELETE FROM medicines WHERE medicine_id = %s", (medicine_id,))
-            self.connection.commit()
-            messagebox.showinfo("Success", "Medicine deleted successfully!")
+            Medicine.delete(self.current_medicine[0])
             self.load_medicines()
+            messagebox.showinfo("Success", "Medicine deleted successfully")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to delete medicine: {e}")
-        finally:
-            cursor.close()
+            messagebox.showerror("Error", f"Failed to delete medicine: {str(e)}")
 
-    def check_expiry(self):
-        """Check for medicines expiring soon"""
-        cursor = self.connection.cursor()
+class MedicineDialog(tk.Toplevel):
+    def __init__(self, parent, title, initial_data=None):
+        super().__init__(parent)
+        self.title(title)
+        self.geometry("500x400")
+        self.resizable(False, False)
+        self.result = None
+        
+        # Form fields
+        fields = [
+            ("Name", "name", True),
+            ("Quantity", "quantity", True),
+            ("Price", "price", True),
+            ("Expiry Date (YYYY-MM-DD)", "expiry_date", False),
+            ("Manufacturer", "manufacturer", False),
+            ("Batch Number", "batch_number", False),
+            ("Category", "category", False),
+            ("Description", "description", False)
+        ]
+        
+        self.entries = {}
+        for i, (label, field, required) in enumerate(fields):
+            ttk.Label(self, text=label + ("" if not required else "*")).grid(row=i, column=0, padx=10, pady=5, sticky=tk.E)
+            entry = ttk.Entry(self, width=30)
+            entry.grid(row=i, column=1, padx=10, pady=5)
+            if initial_data and field in initial_data:
+                entry.insert(0, str(initial_data[field]) if initial_data[field] is not None else "")
+            self.entries[field] = entry
+        
+        # Supplier selection
+        ttk.Label(self, text="Supplier").grid(row=len(fields), column=0, padx=10, pady=5, sticky=tk.E)
+        self.supplier_combo = ttk.Combobox(self, state="readonly")
+        self.supplier_combo.grid(row=len(fields), column=1, padx=10, pady=5)
+        self.load_suppliers()
+        
+        # Buttons
+        btn_frame = ttk.Frame(self)
+        btn_frame.grid(row=len(fields)+1, column=0, columnspan=2, pady=10)
+        
+        ttk.Button(btn_frame, text="Save", command=self.on_save).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=self.destroy).pack(side=tk.RIGHT, padx=5)
+        
+        self.transient(parent)
+        self.grab_set()
+        self.wait_window(self)
+    
+    def load_suppliers(self):
+        """Load suppliers into combobox"""
         try:
-            today = datetime.now().date()
-            alert_date = today + timedelta(days=30)
-
-            cursor.execute("""
-                SELECT name, expiry_date 
-                FROM medicines 
-                WHERE expiry_date IS NOT NULL AND expiry_date <= %s
-                ORDER BY expiry_date
-            """, (alert_date,))
-            expiring_medicines = cursor.fetchall()
-            
-            if not expiring_medicines:
-                messagebox.showinfo("Expiry Check", "No medicines are expiring in the next 30 days.")
-                return
-                
-            alert_message = "Medicines expiring soon:\n\n"
-            for medicine in expiring_medicines:
-                days_left = (medicine[1] - today).days
-                alert_message += f"{medicine[0]} - Expires on: {medicine[1]} ({days_left} days left)\n"
-                
-            messagebox.showwarning("Expiry Alert", alert_message)
+            suppliers = Supplier.get_all()
+            self.supplier_combo['values'] = [f"{s['supplier_id']} - {s['name']}" for s in suppliers]
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to check expiry dates: {e}")
-        finally:
-            cursor.close()
+            messagebox.showerror("Error", f"Failed to load suppliers: {str(e)}")
 
-    def reduce_medicine_quantity(self, medicine_id, quantity):
-        """Reduce medicine quantity after sale"""
-        cursor = self.connection.cursor()
+    def on_save(self):
+        """Validate and save form data"""
         try:
-            cursor.execute("""
-                UPDATE medicines 
-                SET quantity = quantity - %s 
-                WHERE medicine_id = %s AND quantity >= %s
-            """, (quantity, medicine_id, quantity))
-            
-            if cursor.rowcount == 0:
-                self.connection.rollback()
-                return False
+            # Validate required fields
+            if not all(self.entries[f].get() for f in ['name', 'quantity', 'price']):
+                raise ValueError("Required fields are missing")
                 
-            self.connection.commit()
-            return True
-        except Exception as e:
-            self.connection.rollback()
-            messagebox.showerror("Error", f"Failed to update medicine quantity: {e}")
-            return False
-        finally:
-            cursor.close()
+            # Prepare result dictionary
+            self.result = {
+                'name': self.entries['name'].get(),
+                'quantity': int(self.entries['quantity'].get()),
+                'price': float(self.entries['price'].get()),
+                'expiry_date': self.entries['expiry_date'].get() or None,
+                'manufacturer': self.entries['manufacturer'].get() or None,
+                'batch_number': self.entries['batch_number'].get() or None,
+                'category': self.entries['category'].get() or None,
+                'description': self.entries['description'].get() or None,
+                'supplier_id': int(self.supplier_combo.get().split(" - ")[0]) if self.supplier_combo.get() else None
+            }
+            self.destroy()
+        except ValueError as e:
+            messagebox.showerror("Error", f"Invalid input: {str(e)}")

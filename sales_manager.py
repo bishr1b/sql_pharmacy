@@ -253,8 +253,9 @@ class SalesManager:
             font_bold = ImageFont.load_default()
             font_large = ImageFont.load_default()
     
-        draw.text((50, 20), "Pharmacy Management System", fill=(0, 0, 0), font=font_large)
-        draw.text((50, 50), "Address: 123 Main Street", fill=(0, 0, 0), font=font)
+        # Pharmacy name and address
+        draw.text((50, 20), "Al-Khwarizmi Pharmacy", fill=(0, 0, 0), font=font_bold)
+        draw.text((50, 50), "Address: Baghdad University", fill=(0, 0, 0), font=font)
         draw.text((50, 80), "Phone: +123 456 7890", fill=(0, 0, 0), font=font)
     
         current_datetime = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
@@ -312,10 +313,13 @@ class SalesManager:
         draw.text((500, y_offset), f"${total_price + tax:.2f}", fill=(0, 0, 0), font=font_bold)
         y_offset += 40
     
-        draw.text((50, y_offset), "THANK YOU FOR YOUR BUSINESS!", fill=(0, 0, 0), font=font_bold)
+        draw.text((125, y_offset), "THANK YOU FOR YOUR PURCHASE", fill=(0, 0, 0), font=font_bold)
         y_offset += 30
-        draw.text((50, y_offset), "Please come again!", fill=(0, 0, 0), font=font)
-    
+        draw.text((200, y_offset), "Please come again!", fill=(0, 0, 0), font=font)
+
+        # Stars divider
+        draw.text((125, y_offset + 40), "*" * 50, fill=(0, 0, 0), font=font)
+
         receipt_dir = os.path.join(os.getcwd(), "receipts")
         if not os.path.exists(receipt_dir):
             os.makedirs(receipt_dir)

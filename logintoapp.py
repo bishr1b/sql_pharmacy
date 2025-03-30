@@ -54,11 +54,17 @@ class LoginWindow:
 
     def login(self):
         """Validate admin credentials"""
-        ADMIN_USERNAME = "admin"or "ahmed"
+        ADMIN_USERNAME = "admin"
         ADMIN_PASSWORD = "admin123"
 
-        if (self.username_entry.get() == ADMIN_USERNAME and 
-            self.password_entry.get() == ADMIN_PASSWORD):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+
+        if not username or not password:
+            messagebox.showwarning("Warning", "Please enter both username and password")
+            return
+
+        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
             self.login_successful = True
             self.root.destroy()
         else:
