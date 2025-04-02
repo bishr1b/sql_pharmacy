@@ -55,6 +55,7 @@ CREATE TABLE `customers` (
 -- Table structure for table `employees`
 --
 
+
 CREATE TABLE `employees` (
   `employee_id` int(11) NOT NULL AUTO_INCREMENT
   , `name` varchar(100) NOT NULL
